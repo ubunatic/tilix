@@ -103,11 +103,29 @@ To address the primary CPU rendering bottleneck without changing Tilix's archite
 
 ---
 
-## 5. Further Recommendations
+## 5. Hardware-Accelerated Options & GTK4 GSK (Vulkan / OpenGL) Strategy
 
-1. **Avoid Intermediate Offscreen Surface Copies in `Session.onDraw`:**
-   When background images are not active, skip intermediate `createSimilar` surface creation and render directly to the window context.
-2. **Debounce/Throttle Redraws for Heavy Streaming:**
-   Implement output frame throttling during high-bandwidth PTY streaming to cap redraws at 60 FPS rather than triggering Cairo draws on every PTY read chunk.
-3. **Future VTE / GTK4 Migration:**
-   A long-term transition to GTK4 (which uses GSK - GTK Scene Kit with Vulkan/OpenGL backends) will provide full GPU acceleration for VTE widgets on 4K+ displays.
+To break out of the software-rendering (`sse2_fill` / Pixman) bottleneck on 4K+ targets, several hardware acceleration avenues were evaluated:
+
+### A. GTK4 GSK (GTK Scene Kit) with Vulkan & OpenGL Backends
+- **Mechanism:** GTK4 replaces Cairo-based widget rendering with **GSK (GTK Scene Kit)**, which builds a scene graph of render nodes submitted directly to GPU pipelines via **Vulkan** or **OpenGL / GLES**.
+- **Impact on VTE:** Modern VTE (libvte GTK4 build target) utilizes GSK render nodes for terminal cell rendering. Instead of CPU software pixel rasterization across 33MB surface buffers per frame:
+  - Text glyphs and backgrounds are rendered into GPU textures or vertex buffers.
+  - Redraws and scrolling operate via GPU blitting and transformation matrices in VRAM.
+  - Frame delivery easily reaches 60–120+ FPS on 4K targets with minimal CPU utilization.
+- **Migration Path for Tilix:**
+  1. Port GtkD bindings / GTK widget hierarchy from GTK+ 3 (`GtkEventBox`, `GtkOverlay`) to GTK4 (`GtkWidget` base with custom layout managers).
+  2. Link against the GTK4 build variant of VTE (`vte-2.91-gtk4`).
+  3. Replace custom Cairo `draw` signal callbacks (`onVTEDrawBadge`) with GTK4 `snapshot` virtual methods or custom GSK render nodes (`GskRenderNode`).
+
+### B. Direct Custom OpenGL / Vulkan Overlay Widget
+- **Mechanism:** Embedding a custom `GtkGLArea` or Wayland EGL surface for rendering terminal overlays or badges directly via GLSL shaders.
+- **Trade-off:** High complexity in GtkD/D, requires managing OpenGL context state and texture upload pipelines manually. Porting to GTK4 GSK is the cleaner, maintainable architectural approach.
+
+---
+
+## 6. Summary & Recommendations
+
+1. **Immediate Optimization:** Preserve GTK damage clipping paths in Cairo contexts and avoid full-surface clip resets or un-cached GSettings lookups in drawing callbacks (implemented in `Terminal.d`).
+2. **Short-Term Recommendation:** Avoid intermediate offscreen surface allocations in composite window rendering (`Session.onDraw`).
+3. **Long-Term Architectural Strategy:** Transition Tilix to GTK4 and VTE GTK4 to leverage GSK Vulkan/OpenGL hardware acceleration for full 60+ FPS performance on high-DPI and 4K+ displays.
