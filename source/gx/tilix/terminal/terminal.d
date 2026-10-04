@@ -2413,6 +2413,7 @@ private:
             }
             break;
         case SETTINGS_PROFILE_BADGE_POSITION_KEY:
+            badgePosition = gsProfile.getString(SETTINGS_PROFILE_BADGE_POSITION_KEY);
             queueDraw();
             break;
         case SETTINGS_CONTROL_SCROLL_ZOOM_KEY:
@@ -3456,6 +3457,9 @@ private:
 
     PgFontDescription badgeFont = null;
 
+    // Cache badgePosition to avoid GSettings lookups during drawing passes
+    string badgePosition;
+
     int margin = 0;
     bool marginEnabled = false;
 
@@ -3520,7 +3524,10 @@ private:
 
             // Create rect for default NW position
             GdkRectangle rect = GdkRectangle(BADGE_MARGIN, BADGE_MARGIN, to!int(width/2) - BADGE_MARGIN, to!int(height/2) - BADGE_MARGIN);
-            string position = gsProfile.getString(SETTINGS_PROFILE_BADGE_POSITION_KEY);
+            if (badgePosition.length == 0) {
+                badgePosition = gsProfile.getString(SETTINGS_PROFILE_BADGE_POSITION_KEY);
+            }
+            string position = badgePosition;
             //Adjust coords of rect for other positions
             switch (position) {
                 case SETTINGS_QUADRANT_NE_VALUE:
