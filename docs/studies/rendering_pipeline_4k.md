@@ -35,6 +35,19 @@ Call stacks show Pixman fills called through Cairo from GTK/GDK painting and fro
 
 The profile was collected with `perf record -F 99 -g -p <tilix-pid>`. An initial capture targeted `/usr/bin/tilix` and was discarded because it was not the checkout binary; the reported profile is from the local `./tilix` build. The probe/window configuration was fixed for that capture, but this was a single short run and no baseline revision was profiled side-by-side.
 
+### Experimental modern callback capture
+
+A separate roughly 20-second capture used the modern rendering preference with maximized Tilix running `loom-repaint-probe --fps 120`. It collected 1,554 samples:
+
+| Symbol | Share of sampled CPU time |
+| --- | ---: |
+| Pixman `sse2_fill` | 89.22% |
+| VTE `Terminal::get_text` | 1.60% |
+| Pixman `sse2_composite_over_n_8_8888` | 1.55% |
+| VTE `process_incoming_utf8` | 0.76% |
+
+The selected `sse2_fill` call chains pass through Cairo and GTK background drawing/repaint scheduling. Source inspection confirms the experimental callback is still a Cairo path and paints the terminal background with `SOURCE`; it does not replace VTE's renderer. Its differences include the badge drawing and cached badge layout. The earlier legacy capture reported 89.41% in `sse2_fill`, but the runs had different lengths and sample counts and were not controlled or repeated. Their percentages cannot show whether the modern callback changes performance. The user earlier reported no measurable result from repaint probes for prior repaint changes; no controlled before/after comparison isolating the modern callback is available.
+
 ## OpenGL setting experiment
 
 The installed GTK 3 library recognizes `GDK_GL=always`; upstream GTK describes that value as forcing OpenGL rendering ([GTK change](https://mail.gnome.org/archives/commits-list/2014-November/msg00895.html)). This must be set before GTK starts, so it requires a new Tilix process. The machine's Mesa GLX information reported the AMD Radeon integrated GPU as accelerated.
