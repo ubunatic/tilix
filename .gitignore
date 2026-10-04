@@ -50,3 +50,5 @@ po/remove-potcdate.sin
 po/stamp-po
 po/*.gmo
 po/remove-potcdate.sed
+# Harnez issue tracker lock files
+/issues/*.lock
