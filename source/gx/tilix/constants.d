@@ -44,6 +44,11 @@ immutable bool USE_COMMIT_SYNCHRONIZATION = false;
  */
 immutable bool COMPILE_VTE_BACKGROUND_COLOR = false;
 
+/**
+ * Modern Rendering Path MVP compile/runtime default flag
+ */
+immutable bool DEFAULT_USE_MODERN_RENDERING_PATH = false;
+
 /**************************************
  * Application Constants
  **************************************/
