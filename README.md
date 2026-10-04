@@ -86,14 +86,22 @@ with translations, please do not submit direct pull requests to this repository 
 ### Building
 
 Tilix is written in [D](https://dlang.org/) and GTK 3 using the gtkd framework. This project uses dub to manage the build process including fetching the dependencies,
-thus there is no need to install dependencies manually. The only thing you need to install to build the application is the D tools (compiler and Phobos) along with dub itself.
+thus there is no need to install the D dependencies manually. You need a supported D compiler, its runtime libraries, and dub.
 Note that D supports three [compilers](https://wiki.dlang.org/Compilers) (DMD, GDC and LDC) but Tilix only supports DMD and LDC.
 
-Once you have those installed, compiling the application is a one line command as follows:
+On Fedora, install Dub and LDC with:
 
 ```
-dub build --build=release
+sudo dnf install dub ldc ldc-libs
 ```
+
+Then build a release binary with:
+
+```
+make build
+```
+
+The Makefile uses LDC (`ldc2`). To use DMD instead, run `dub build --build=release --compiler=dmd`.
 
 The application depends on various resources to function correctly, run `sudo ./install.sh` to build and copy all of the resources to the correct locations. Note this
 has only been tested on Arch Linux, use with caution.

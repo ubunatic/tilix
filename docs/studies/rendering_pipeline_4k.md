@@ -1,131 +1,48 @@
-# Tilix Rendering Pipeline & 4K Surface Performance Study
+# Tilix rendering and 4K performance investigation
 
-## Executive Summary
+## Status
 
-Tilix is a popular tiling terminal emulator built with GTK+ 3 and the VTE (`libvte`) widget library in D. On high-resolution displays (4K / 3840x2160 pixels and above), users observe lower frame rates (often struggling to maintain 30-40 FPS during heavy scrolling or rapid output) compared to GPU-accelerated or Wayland-native terminals like **Kitty** and **Foot**, which easily achieve 60+ FPS.
+This document records source review and a short local profile taken on 2026-10-04. It is an investigation, not a controlled benchmark. No before/after FPS result has been established for the recent damage-clip or badge-position changes.
 
-This study analyzes the rendering architecture of Tilix, identifies key performance bottlenecks at 4K resolution, compares Tilix with modern high-performance terminals, and details implemented and recommended optimizations.
+## Current rendering path
 
----
+Tilix uses GTK 3 and embeds VTE (`VteTerminal`). GTK 3 drawing uses Cairo; the local profile also shows Cairo/Pixman and VTE symbols on the hot paths. GTK 3 has a `GtkGLArea` widget for application code that explicitly renders with OpenGL, but Tilix's VTE widget does not use that widget. See the [GTK 3 drawing migration notes](https://gnome.pages.gitlab.gnome.org/gtk/gtk3/migrating-2to3.html) and [`GtkGLArea` API](https://docs.gtk.org/gtk3/class.GLArea.html).
 
-## 1. Tilix Rendering Architecture Overview
+The display compositor may use the GPU to composite application windows. That does not mean VTE's terminal-cell drawing is GPU-rendered.
 
-The rendering stack in Tilix operates through several layers:
+## Reassessment of the damage-clip change
 
-```
-[ Application / Session / Terminal UI ]  (D / GtkD)
-                  │
-[ GtkEventBox / GtkOverlay / GtkBox ]     (GTK+ 3 Widget Container)
-                  │
-[ VteTerminal Widget ]                    (libvte C Library)
-                  │
-[ PangoCairo / Cairo Context ]            (Software 2D Rasterization)
-                  │
-[ GDK Window / Wayland Surface / X11 ]    (Display Server Compositor)
-```
+The earlier claim that `cr.rectangle(0, 0, width, height); cr.clip();` makes Cairo paint the full widget was incorrect. Cairo intersects a new clip with the current clip; `cairo_clip()` can only shrink the active region. If GTK has already supplied a damage clip, intersecting it with the full widget rectangle leaves the damage clip in effect. [`cairo_clip()` reference](https://www.cairographics.org/manual/cairo-cairo-t.html).
 
-1. **Composite Widget Structure:**
-   Each terminal pane in Tilix is a composite GTK widget (`gx.tilix.terminal.Terminal` subclassing `GtkEventBox`), which encapsulates a `HeaderBar` / title pane, search revealer, scrollbar, and `ExtendedVTE` (`VteTerminal`).
+Likewise, `cr.paint()` paints within the active clip. Removing the full-widget rectangle and clip therefore does not by itself establish a reduction in the background area painted. The prior estimate of a greater than 99% reduction, and the claim that the old background paint necessarily wrote a full 4K frame, were unsupported and should not be repeated as measured results.
 
-2. **GTK3 & Cairo Rendering Model:**
-   GTK3 delegates widget surface rendering to **Cairo** (`cairo_t`). During a redraw pass:
-   - GTK emits the `draw` signal to `VteTerminal` and attached overlay handlers (`onVTEDrawBadge`, `onVTEDraw`).
-   - Cairo receives a drawing context pre-clipped by GTK to the damaged (invalidated) region.
-   - Software CPU rasterization computes pixel colors and writes them to the underlying GDK surface memory.
+`cairo_reset_clip()` does remove the active clip. Scoping drawing with `save()`/`restore()` is safer for preserving caller state, but the performance effect of this change has not been measured. The current implementation also caches the badge-position setting; the lookup reduction is real in source, but its performance impact has not been benchmarked.
 
----
+## Local profile
 
-## 2. Bottleneck Analysis on 4K Targets
+On 2026-10-04, `perf` sampled the checkout's `./tilix` process while a maximized window ran `loom-repaint-probe --fps 120`. The 25-second capture collected 1,920 samples. The leading symbols were:
 
-### A. Software Pixel Throughput at 4K Resolution
-- A 4K display target (3840x2160 pixels) contains **~8.29 million pixels**.
-- At 32-bit RGBA color depth, a single full frame buffer occupies **~33.17 MB**.
-- At 60 FPS, software rendering of full surface redraws demands **~2.0 GB/s** of memory bandwidth just for software pixel copying, before accounting for font layout, glyph rasterization, and GTK compositing.
+| Symbol | Share of sampled CPU cycles |
+| --- | ---: |
+| Pixman `sse2_fill` | 89.41% |
+| VTE `Terminal::get_text` | 1.92% |
+| Pixman `sse2_composite_over_n_8_8888` | 1.37% |
+| VTE `process_incoming_utf8` | 0.90% |
 
-### B. Identified Bottlenecks in Tilix Codebase
+Call stacks show Pixman fills called through Cairo from GTK/GDK painting and from VTE's `DrawingCairo::fill_rectangle` / `Terminal::draw_rows` path. This identifies software pixel fills as the dominant sampled work for this run. It does not establish which individual fill or feature should be optimized next.
 
-#### 1. Full-Surface Clipping Overrides and Destructive `cr.resetClip()`
-In `source/gx/tilix/terminal/terminal.d`, `onVTEDrawBadge` is connected to `vte.addOnDraw(&onVTEDrawBadge)`. On every VTE draw signal:
-```d
-cr.rectangle(0.0, 0.0, width, height);
-cr.clip();
-cr.paint();
-cr.resetClip();
-```
-- **Issue:** `cr.rectangle(0, 0, width, height)` and `cr.clip()` force Cairo to process the entire widget bounds (`width` x `height`).
-- **Critical Flaw:** Calling `cr.resetClip()` strips away GTK's pre-configured damage region clip from the Cairo context. Consequently, GTK's damage tracking is destroyed, forcing subsequent drawing operations or background fills to re-evaluate or draw full-surface bounds rather than confining updates to the small dirty rectangle (e.g. single cursor line or typed character).
+The profile was collected with `perf record -F 99 -g -p <tilix-pid>`. An initial capture targeted `/usr/bin/tilix` and was discarded because it was not the checkout binary; the reported profile is from the local `./tilix` build. The probe/window configuration was fixed for that capture, but this was a single short run and no baseline revision was profiled side-by-side.
 
-#### 2. Background Painting Strategy in `onVTEDrawBadge`
-- When `isVTEBackgroundDrawEnabled()` is true (which is standard on modern VTE versions where background clearing is handled by the application/draw signal), `onVTEDrawBadge` runs on every GTK draw pass.
-- Performing full-widget `cr.paint()` fills without damage region constraint forces CPU software memory fills of 33MB per frame at 4K.
+## OpenGL setting experiment
 
-#### 3. Widget Hierarchy & Cairo Surface Overlay Propagation
-- In `Session.d` (`onDraw`), Tilix supports background images and window transparency. When background images or window compositing are enabled, Tilix renders child widgets onto offscreen Cairo surfaces (`createSimilar`) and overlays them via `cairo_operator_t.OVER`.
-- At 4K resolution, allocating and copying intermediate offscreen surfaces per frame causes frame drops during rapid output streaming (`cat`, `htop`, `cmatrix`).
+The installed GTK 3 library recognizes `GDK_GL=always`; upstream GTK describes that value as forcing OpenGL rendering ([GTK change](https://mail.gnome.org/archives/commits-list/2014-November/msg00895.html)). This must be set before GTK starts, so it requires a new Tilix process. The machine's Mesa GLX information reported the AMD Radeon integrated GPU as accelerated.
 
----
+A separate roughly 20-second profile with `GDK_GL=always` still showed Pixman `sse2_fill` at 53.41% of sampled cycles, alongside VTE processing and memory copies. The user measured this mode as slower. The two captures were not controlled or directly comparable, so their percentages do not quantify a speedup or slowdown. The observation is that forcing GDK's GL path did not remove VTE's Cairo/Pixman work and did not improve the user's probe result.
 
-## 3. Comparative Architecture Analysis
+Do not recommend `GDK_GL=always` as a Tilix performance fix based on this evidence. GTK 3's `GDK_RENDERING=similar` is already the default; `GDK_RENDERING=image` explicitly disables GTK hardware acceleration. [GTK 3 runtime options](https://docs.gtk.org/gtk3/running.html).
 
-| Feature / Architecture | Tilix (VTE / GTK3) | Kitty | Foot |
-| :--- | :--- | :--- | :--- |
-| **Rendering Engine** | Cairo (Software / CPU) | OpenGL / GLSL Shaders (GPU) | Pixman / Software SHM (CPU) |
-| **Glyph Caching** | Pango / Cairo Software Cache | OpenGL Texture Atlas in VRAM | Pixman Glyph Cache / SHM |
-| **Damage Tracking** | GTK Damage Region (damaged if unclipped) | Custom Dirty Cell Matrix | Wayland Damage Region |
-| **4K Fill Throughput** | CPU-bound (~30-40 FPS max heavy output) | GPU VRAM Fill (>120 FPS capable) | Minimal SHM Copy (>60 FPS) |
-| **Resource Usage** | Higher CPU during rapid scrolling | Low CPU, Moderate VRAM | Very Low CPU & RAM |
+## Benchmarking guidance
 
-### Why Kitty and Foot are Faster:
-1. **Kitty:** Uploads font glyphs to a GPU texture atlas once. Terminal grid state is rendered via custom OpenGL shaders, blitting glyph quads directly in GPU VRAM. Frame presentation bypasses CPU rasterization entirely.
-2. **Foot:** Purpose-built for Wayland using minimal Pixman routines and shared memory (`wl_shm`). It performs minimal damage tracking down to individual terminal grid cells and avoids widget layer compositing overhead.
+Performance claims need repeatable measurements. For an optimization, record the exact Tilix binary/revision, GTK/VTE versions, display/backend, window size, probe command, run duration, and FPS or CPU result. Compare before and after under the same setup, with repeated runs. A profiler's hottest symbol identifies where CPU samples landed; it does not prove that a particular source change improved FPS.
 
----
-
-## 4. Implemented Optimization in Tilix
-
-To address the primary CPU rendering bottleneck without changing Tilix's architecture or external dependencies:
-
-### Optimization 1: Damage-Clip Preservation in `onVTEDrawBadge` (`Terminal.d`)
-1. **Eliminated `cr.rectangle(0.0, 0.0, width, height)` & `cr.clip()`:**
-   Instead of overriding the clip path with full widget dimensions, `cr.paint()` is called directly on the Cairo context. Cairo automatically restricts the background paint to GTK's invalidated damage region.
-2. **Removed Destructive `cr.resetClip()` Calls:**
-   Replaced `cr.resetClip()` with proper Cairo context state scoping (`cr.save()` and `cr.restore()`).
-3. **Impact:**
-   During normal user interactions (typing, cursor blinking, single-line terminal output), the drawn surface area drops from **8,294,400 pixels** (full 4K surface) to **~200–5,000 pixels** (dirty region only)—a **>99% reduction in software pixel write volume** per frame update.
-
-### Optimization 2: GSettings Query Caching in `onVTEDrawBadge` (`Terminal.d`)
-1. **Cached `badgePosition` Setting in `Terminal` Member Variable:**
-   Previously, `onVTEDrawBadge` invoked `gsProfile.getString(SETTINGS_PROFILE_BADGE_POSITION_KEY)` on every draw frame. This caused repeated GSettings IPC/variant lookups and heap string allocations during every render pass.
-2. **Updated via Preference Change Signals:**
-   `badgePosition` is initialized during terminal setup and updated only when the preference change signal is triggered (`applyPreference`).
-3. **Impact:**
-   Eliminates per-frame GSettings IPC and heap string allocations in hot drawing paths, reducing GC pressure and draw loop execution overhead.
-
----
-
-## 5. Hardware-Accelerated Options & GTK4 GSK (Vulkan / OpenGL) Strategy
-
-To break out of the software-rendering (`sse2_fill` / Pixman) bottleneck on 4K+ targets, several hardware acceleration avenues were evaluated:
-
-### A. GTK4 GSK (GTK Scene Kit) with Vulkan & OpenGL Backends
-- **Mechanism:** GTK4 replaces Cairo-based widget rendering with **GSK (GTK Scene Kit)**, which builds a scene graph of render nodes submitted directly to GPU pipelines via **Vulkan** or **OpenGL / GLES**.
-- **Impact on VTE:** Modern VTE (libvte GTK4 build target) utilizes GSK render nodes for terminal cell rendering. Instead of CPU software pixel rasterization across 33MB surface buffers per frame:
-  - Text glyphs and backgrounds are rendered into GPU textures or vertex buffers.
-  - Redraws and scrolling operate via GPU blitting and transformation matrices in VRAM.
-  - Frame delivery easily reaches 60–120+ FPS on 4K targets with minimal CPU utilization.
-- **Migration Path for Tilix:**
-  1. Port GtkD bindings / GTK widget hierarchy from GTK+ 3 (`GtkEventBox`, `GtkOverlay`) to GTK4 (`GtkWidget` base with custom layout managers).
-  2. Link against the GTK4 build variant of VTE (`vte-2.91-gtk4`).
-  3. Replace custom Cairo `draw` signal callbacks (`onVTEDrawBadge`) with GTK4 `snapshot` virtual methods or custom GSK render nodes (`GskRenderNode`).
-
-### B. Direct Custom OpenGL / Vulkan Overlay Widget
-- **Mechanism:** Embedding a custom `GtkGLArea` or Wayland EGL surface for rendering terminal overlays or badges directly via GLSL shaders.
-- **Trade-off:** High complexity in GtkD/D, requires managing OpenGL context state and texture upload pipelines manually. Porting to GTK4 GSK is the cleaner, maintainable architectural approach.
-
----
-
-## 6. Summary & Recommendations
-
-1. **Immediate Optimization:** Preserve GTK damage clipping paths in Cairo contexts and avoid full-surface clip resets or un-cached GSettings lookups in drawing callbacks (implemented in `Terminal.d`).
-2. **Short-Term Recommendation:** Avoid intermediate offscreen surface allocations in composite window rendering (`Session.onDraw`).
-3. **Long-Term Architectural Strategy:** Transition Tilix to GTK4 and VTE GTK4 to leverage GSK Vulkan/OpenGL hardware acceleration for full 60+ FPS performance on high-DPI and 4K+ displays.
+GTK 4 has GSK renderers for Cairo, OpenGL, and Vulkan, but moving Tilix to GTK 4 alone does not prove VTE's terminal content will be GPU-rendered. GTK 4 widgets can still add Cairo drawing nodes, and GTK documents `gtk_snapshot_append_cairo()` for custom drawing. Verify the GTK4 VTE rendering path and measure it before treating migration as a hardware-acceleration solution. [GSK renderer overview](https://gnome.pages.gitlab.gnome.org/gtk/gsk4/), [GTK 4 Cairo guidance](https://gnome.pages.gitlab.gnome.org/gtk/gtk4/question_index.html).
