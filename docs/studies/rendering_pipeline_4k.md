@@ -2,7 +2,7 @@
 
 ## Status
 
-This document records source review and a short local profile taken on 2026-10-04. It is an investigation, not a controlled benchmark. No before/after FPS result has been established for the recent damage-clip or badge-position changes.
+Updated 2026-10-04. Profiling identifies Pixman fills as the dominant CPU work, and matched Tilix-only samples show lower CPU cost when transparency support is disabled. A delivered-FPS improvement has not yet been captured reliably. The user's demo showed roughly 60–70 FPS with transparency support enabled and roughly 90–99 FPS with the CSS change, but those values were observed by the user and were not recorded as a controlled A/B.
 
 ## Current rendering path
 
@@ -47,6 +47,44 @@ A separate roughly 20-second capture used the modern rendering preference with m
 | VTE `process_incoming_utf8` | 0.76% |
 
 The selected `sse2_fill` call chains pass through Cairo and GTK background drawing/repaint scheduling. Source inspection confirms the experimental callback is still a Cairo path and paints the terminal background with `SOURCE`; it does not replace VTE's renderer. Its differences include the badge drawing and cached badge layout. The earlier legacy capture reported 89.41% in `sse2_fill`, but the runs had different lengths and sample counts and were not controlled or repeated. Their percentages cannot show whether the modern callback changes performance. The user earlier reported no measurable result from repaint probes for prior repaint changes; no controlled before/after comparison isolating the modern callback is available.
+
+### Follow-up modern-mode capture
+
+A fresh capture on 2026-10-04 explicitly selected the modern rendering path, launched the checkout binary in a maximized window, and ran `loom-repaint-probe --fps 120` for up to 40 seconds. `perf record -F 99 -g` was attached to that checkout Tilix PID for up to 25 seconds. The process ended before the requested capture duration; `perf` retained 1,470 samples spanning 22.48 seconds, with no lost samples. The top self-cost was:
+
+| Symbol | Share of sampled CPU cycles |
+| --- | ---: |
+| Pixman `sse2_fill` | 83.46% |
+
+The call chains include GTK CSS widget-background drawing, GDK backing-area clearing, VTE `Terminal::draw_rows` / `DrawingCairo::fill_rectangle`, and Tilix's own modern callback. `perf report --call-graph=graph` attributes 12.71% of all sampled cycles to `Terminal::onVTEDrawBadge` → `renderModernPath` → Cairo `paint` → Pixman `sse2_fill`. This is a concrete Tilix-owned paint candidate. The trace does not report its clip area or prove the fill is redundant, so skipping it is an experiment that needs a visual check and matched profile. The raw profile and full text reports are in `/tmp/tilix-perf-20261004-modern/` on the capture machine. The global rendering preference was restored to `legacy` after the run.
+
+### Opaque-window CSS background A/B
+
+The terminal profile uses an opaque solid background, but the global `enable-transparency` capability was enabled. A matched A/B disabled that capability for both runs and compared Tilix with the `tilix-background` CSS class applied versus omitted from its session/stack containers. Both runs were maximized, used modern mode and the `--fps 120` repaint load, and were measured for 20.17 seconds with `perf stat` on the checkout Tilix PID:
+
+| Run | Tilix CPU time | CPU cycles | Change from baseline |
+| --- | ---: | ---: | ---: |
+| CSS background classes applied (baseline) | 13.30 s | 48.04 billion | — |
+| CSS classes omitted when transparency is disabled | 9.25 s | 32.76 billion | 30.5% less CPU time; 31.8% fewer cycles |
+
+A repeat measured 13.09 s / 46.31 billion cycles for the baseline and 9.55 s / 31.93 billion cycles for the variant, a 27.0% CPU-time reduction and 31.0% fewer cycles. This clears the 20% CPU-cost target in both pairs under the fixed repaint load. The run measured Tilix CPU cost, not delivered display FPS. The optimization preserves the CSS backgrounds when transparency is enabled. The capture machine had `enable-transparency=true` before and after the experiment; users who keep transparency disabled get the optimized path. The paired `perf stat` outputs are in `/tmp/tilix-ab-20261004/`.
+
+### Delivered FPS and display-placement correction
+
+The FPS shown by `loom-repaint-probe` is the relevant delivered-rate outcome. A temporary `TILIX_RENDER_STATS=1` diagnostic instead counted GDK frame-clock ticks from Tilix's custom draw callback. It reported values around 14–18 on some large-display runs and 52 on a laptop-display run. These values did not match the FPS shown by the demo and must not be used as the probe FPS or as proof of delivered throughput. One run reported 52.13 while the window was on the laptop display; it is excluded from the large-display comparison.
+
+On later large-display runs, the GDK diagnostic reported 17.36 for the CSS-class baseline and 17.66 / 17.82 for the variant. This small difference is not a valid demo-FPS comparison. Short Tilix-only `perf stat` samples also varied and did not reproduce the earlier CPU reduction. The large-display throughput result therefore remains unverified. The next A/B must read the probe's displayed FPS, confirm the window is on the Gigabyte before the timed interval, and compare repeated runs at the same size and workload. Record Tilix CPU separately if useful.
+
+The local launcher now accepts `--mode baseline` and `--mode optimized`. Both select modern rendering; baseline enables the global transparency capability and optimized disables it, then restores the previous settings when the launched process exits. The profile transparency slider at 0% controls transparency amount; it does not turn off the separate `enable-transparency` capability. On modern GNOME the capability checkbox is hidden, so use the launcher mode for this A/B. Omitting `--mode` keeps the current settings. Example:
+
+```sh
+scripts/run-local-tilix.sh --mode baseline --maximize \
+  --command='loom-repaint-probe --fps 120'
+scripts/run-local-tilix.sh --mode optimized --maximize \
+  --command='loom-repaint-probe --fps 120'
+```
+
+The launcher was checked with `bash -n` and `--help`; these checks do not verify the A/B or the reported demo FPS.
 
 ## OpenGL setting experiment
 
