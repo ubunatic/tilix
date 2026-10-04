@@ -449,6 +449,15 @@ protected:
         grid.attach(cbBell, 1, row, 1, 1);
         row++;
 
+        //Rendering Path
+        Label lblRenderingPath = new Label(_("Rendering path"));
+        lblRenderingPath.setHalign(GtkAlign.END);
+        grid.attach(lblRenderingPath, 0, row, 1, 1);
+        ComboBox cbRenderingPath = createNameValueCombo([_("Legacy (Cairo Software)"), _("Modern (Hardware-Accelerated / GSK)")], SETTINGS_RENDERING_PATH_VALUES);
+        bh.bind(SETTINGS_PROFILE_RENDERING_PATH_KEY, cbRenderingPath, "active-id", GSettingsBindFlags.DEFAULT);
+        grid.attach(cbRenderingPath, 1, row, 1, 1);
+        row++;
+
         add(grid);
     }
 

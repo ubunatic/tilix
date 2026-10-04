@@ -40,6 +40,12 @@ enum SETTINGS_ALL_TRIGGERS_KEY = "triggers";
 enum SETTINGS_TRIGGERS_LINES_KEY = "triggers-lines";
 enum SETTINGS_TRIGGERS_UNLIMITED_LINES_KEY = "trigger-unlimit-lines";
 
+// Rendering Path Settings
+enum SETTINGS_RENDERING_PATH_KEY = "rendering-path";
+enum SETTINGS_RENDERING_PATH_LEGACY_VALUE = "legacy";
+enum SETTINGS_RENDERING_PATH_MODERN_VALUE = "modern";
+immutable string[] SETTINGS_RENDERING_PATH_VALUES = [SETTINGS_RENDERING_PATH_LEGACY_VALUE, SETTINGS_RENDERING_PATH_MODERN_VALUE];
+
 // Theme Settings
 enum SETTINGS_THEME_VARIANT_KEY = "theme-variant";
 enum SETTINGS_THEME_VARIANT_SYSTEM_VALUE = "system";
@@ -280,6 +286,7 @@ enum SETTINGS_PROFILE_USE_BADGE_COLOR_KEY = "badge-color-set";
 enum SETTINGS_PROFILE_BADGE_POSITION_KEY = "badge-position";
 enum SETTINGS_PROFILE_BADGE_USE_SYSTEM_FONT_KEY = "badge-use-system-font";
 enum SETTINGS_PROFILE_BADGE_FONT_KEY = "badge-font";
+enum SETTINGS_PROFILE_RENDERING_PATH_KEY = "rendering-path";
 
 enum SETTINGS_QUADRANT_NW_VALUE = "northwest";
 enum SETTINGS_QUADRANT_NE_VALUE = "northeast";
@@ -554,4 +561,11 @@ unittest {
     ProfileInfo pi1 = ProfileInfo(false, "1234", "test");
     ProfileInfo pi2 = ProfileInfo(false, "1234", "test");
     assert(pi1 == pi2);
+
+    assert(SETTINGS_RENDERING_PATH_KEY == "rendering-path");
+    assert(SETTINGS_RENDERING_PATH_LEGACY_VALUE == "legacy");
+    assert(SETTINGS_RENDERING_PATH_MODERN_VALUE == "modern");
+    assert(SETTINGS_RENDERING_PATH_VALUES.length == 2);
+    assert(SETTINGS_RENDERING_PATH_VALUES[0] == SETTINGS_RENDERING_PATH_LEGACY_VALUE);
+    assert(SETTINGS_RENDERING_PATH_VALUES[1] == SETTINGS_RENDERING_PATH_MODERN_VALUE);
 }

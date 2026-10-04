@@ -1203,6 +1203,13 @@ class AppearancePreferences: Box {
             grid.attach(cbThemeVariant, 1, row, 1, 1);
             row++;
 
+            //Rendering Path
+            grid.attach(createLabel(_("Rendering path")), 0, row, 1, 1);
+            ComboBox cbRenderingPath = createNameValueCombo([_("Legacy (Cairo Software)"), _("Modern (Hardware-Accelerated / GSK)")], SETTINGS_RENDERING_PATH_VALUES);
+            bh.bind(SETTINGS_RENDERING_PATH_KEY, cbRenderingPath, "active-id", GSettingsBindFlags.DEFAULT);
+            grid.attach(cbRenderingPath, 1, row, 1, 1);
+            row++;
+
             //Background Image
             grid.attach(createLabel(_("Background image")), 0, row, 1, 1);
 

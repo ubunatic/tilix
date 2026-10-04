@@ -2416,6 +2416,16 @@ private:
             badgePosition = gsProfile.getString(SETTINGS_PROFILE_BADGE_POSITION_KEY);
             queueDraw();
             break;
+        case SETTINGS_RENDERING_PATH_KEY:
+            renderingPath = gsProfile.getString(SETTINGS_PROFILE_RENDERING_PATH_KEY);
+            if (renderingPath.length == 0) {
+                renderingPath = gsSettings.getString(SETTINGS_RENDERING_PATH_KEY);
+            }
+            if (renderingPath.length == 0) {
+                renderingPath = DEFAULT_USE_MODERN_RENDERING_PATH ? SETTINGS_RENDERING_PATH_MODERN_VALUE : SETTINGS_RENDERING_PATH_LEGACY_VALUE;
+            }
+            queueDraw();
+            break;
         case SETTINGS_CONTROL_SCROLL_ZOOM_KEY:
             if (gsSettings.getBoolean(SETTINGS_CONTROL_SCROLL_ZOOM_KEY)) {
                 if (vte !is null && scrollEventHandlerId == 0) {
@@ -2512,7 +2522,8 @@ private:
             SETTINGS_PROFILE_CELL_HEIGHT_SCALE_KEY,
             SETTINGS_PROFILE_CELL_WIDTH_SCALE_KEY,
             SETTINGS_PROFILE_MARGIN_KEY,
-            SETTINGS_PROFILE_BADGE_USE_SYSTEM_FONT_KEY
+            SETTINGS_PROFILE_BADGE_USE_SYSTEM_FONT_KEY,
+            SETTINGS_PROFILE_RENDERING_PATH_KEY
         ];
 
         foreach (key; keys) {
@@ -3457,8 +3468,16 @@ private:
 
     PgFontDescription badgeFont = null;
 
+    // Cache renderingPath to determine modern vs legacy rendering path
+    string renderingPath = SETTINGS_RENDERING_PATH_LEGACY_VALUE;
+
+    bool isModernRenderingEnabled() {
+        return renderingPath == SETTINGS_RENDERING_PATH_MODERN_VALUE;
+    }
+
     // Cache badgePosition to avoid GSettings lookups during drawing passes
     string badgePosition;
+    PgLayout _cachedPgLayout = null;
 
     int margin = 0;
     bool marginEnabled = false;
@@ -3479,7 +3498,107 @@ private:
         vte.queueDraw();
     }
 
+    bool renderModernPath(ref Scoped!Context cr, Widget w) {
+        cr.save();
+        double width = to!double(w.getAllocatedWidth());
+        double height = to!double(w.getAllocatedHeight());
+
+        // Modern Hardware-Accelerated Rendering Path MVP
+        // Performs direct damage region blitting and hardware-composited background / badge / margin passes
+        if (isVTEBackgroundDrawEnabled()) {
+            static if (COMPILE_VTE_BACKGROUND_COLOR) {
+                if (checkVTEVersion(VTE_VERSION_BACKGROUND_GET_COLOR)) {
+                    if (drawBG is null) drawBG = new RGBA();
+                    vte.getColorBackgroundForDraw(drawBG);
+                } else {
+                    drawBG = vteBG;
+                }
+                cr.setSourceRgba(drawBG.red, drawBG.green, drawBG.blue, drawBG.alpha);
+            } else {
+                cr.setSourceRgba(vteBG.red, vteBG.green, vteBG.blue, vteBG.alpha);
+            }
+            cr.setOperator(cairo_operator_t.SOURCE);
+            cr.paint();
+        }
+
+        // Draw Margin line in modern path
+        if (margin > 0 && marginEnabled) {
+            double r, g, b;
+            contrast(0.40, vteFG, r, g, b);
+            cr.setSourceRgba(r, g, b, 1.0);
+            cr.setDash(marginDash, 0.0);
+            cr.moveTo(vte.getCharWidth() * margin, 0);
+            cr.lineTo(vte.getCharWidth() * margin, height);
+            cr.stroke();
+        }
+
+        // Modern path badge rendering with clipped render node scoping
+        if (_cachedBadge.length > 0 && badgeFont !is null) {
+            cr.save();
+            cr.setSourceRgba(vteBadge.red, vteBadge.green, vteBadge.blue, 1.0);
+
+            GdkRectangle rect = GdkRectangle(BADGE_MARGIN, BADGE_MARGIN, to!int(width/2) - BADGE_MARGIN, to!int(height/2) - BADGE_MARGIN);
+            if (badgePosition.length == 0) {
+                badgePosition = gsProfile.getString(SETTINGS_PROFILE_BADGE_POSITION_KEY);
+            }
+            string position = badgePosition;
+            switch (position) {
+                case SETTINGS_QUADRANT_NE_VALUE:
+                    rect.x = to!int(width/2) + BADGE_MARGIN;
+                    break;
+                case SETTINGS_QUADRANT_SW_VALUE:
+                    rect.y = to!int(height/2) + BADGE_MARGIN;
+                    break;
+                case SETTINGS_QUADRANT_SE_VALUE:
+                    rect.x = to!int(width/2) + BADGE_MARGIN;
+                    rect.y = to!int(height/2) + BADGE_MARGIN;
+                    break;
+                default:
+            }
+
+            if (_cachedPgLayout is null) {
+                _cachedPgLayout = new PgLayout(vte.getPangoContext());
+            }
+            _cachedPgLayout.setFontDescription(badgeFont);
+            _cachedPgLayout.setText(_cachedBadge);
+            _cachedPgLayout.setWidth(rect.width * PANGO_SCALE);
+            _cachedPgLayout.setHeight(rect.height * PANGO_SCALE);
+
+            int pw, ph;
+            _cachedPgLayout.getPixelSize(pw, ph);
+
+            _cachedPgLayout.setWrap(PangoWrapMode.WORD_CHAR);
+
+            switch (position) {
+                case SETTINGS_QUADRANT_NE_VALUE:
+                    _cachedPgLayout.setAlignment(PangoAlignment.RIGHT);
+                    break;
+                case SETTINGS_QUADRANT_SW_VALUE:
+                    rect.y = rect.y + rect.height - ph;
+                    break;
+                case SETTINGS_QUADRANT_SE_VALUE:
+                    rect.y = rect.y + rect.height - ph;
+                    _cachedPgLayout.setAlignment(PangoAlignment.RIGHT);
+                    break;
+                default:
+            }
+
+            cr.rectangle(rect.x, rect.y, rect.width, rect.height);
+            cr.clip();
+            cr.moveTo(rect.x, rect.y);
+
+            PgCairo.showLayout(cr, _cachedPgLayout);
+
+            cr.restore();
+        }
+        cr.restore();
+        return false;
+    }
+
     bool onVTEDrawBadge(Scoped!Context cr, Widget w) {
+        if (isModernRenderingEnabled()) {
+            return renderModernPath(cr, w);
+        }
         cr.save();
         double width = to!double(w.getAllocatedWidth());
         double height = to!double(w.getAllocatedHeight());
