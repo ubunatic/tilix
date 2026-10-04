@@ -3480,7 +3480,9 @@ private:
         double width = to!double(w.getAllocatedWidth());
         double height = to!double(w.getAllocatedHeight());
 
-        // Only draw background if vte background draw is disabled
+        // Performance Optimization: Paint background directly into GTK's
+        // damaged clip region instead of re-clipping to full widget bounds
+        // or calling cr.resetClip(), which strips GTK's damage tracking.
         if (isVTEBackgroundDrawEnabled()) {
             static if (COMPILE_VTE_BACKGROUND_COLOR) {
                 if (checkVTEVersion(VTE_VERSION_BACKGROUND_GET_COLOR)) {
@@ -3495,10 +3497,7 @@ private:
                 cr.setSourceRgba(vteBG.red, vteBG.green, vteBG.blue, vteBG.alpha);
             }
             cr.setOperator(cairo_operator_t.SOURCE);
-            cr.rectangle(0.0, 0.0, width, height);
-            cr.clip();
             cr.paint();
-            cr.resetClip();
         }
         //Draw Margin line
         if (margin > 0 && marginEnabled) {
@@ -3513,6 +3512,7 @@ private:
 
         //Draw badge if badge text is available
         if (_cachedBadge.length > 0 && badgeFont !is null) {
+            cr.save();
             // Paint badge
             // Use same alpha as background color to match transparency slider
             //cr.setSourceRgba(vteBadge.red, vteBadge.green, vteBadge.blue, vteBG.alpha);
@@ -3546,27 +3546,7 @@ private:
             int pw, ph;
             pgl.getPixelSize(pw, ph);
 
-            /**************************************************
-            /* Old code where we auto-sized the badge,
-            /* leave it here in case we want to bring it back
-
-            //Hack, deduct 0.2 from ratio to make sure text will fit when painted
-            /*
-            double fontRatio = min(to!double(rect.width)/to!double(pw) - 0.2, to!double(rect.height)/to!double(ph));
-            // If a bigger font fits, then increase it
-            if (fontRatio > 1 && defaultFont) {
-                int fontSize = to!int(floor(fontRatio * badgeFont.getSize()));
-                badgeFont.setSize(fontSize);
-                pgl.setFontDescription(badgeFont);
-                //tracef("Width %d, Pixel Width %d, Pixel Height %d, Original Font ratio %f, Font size %d", rect.width, pw, ph, fontRatio, fontSize);
-                pgl.getPixelSize(pw, ph);
-            } else {
-                pgl.setWrap(PangoWrapMode.WORD_CHAR);
-            }
-            */
-             /**************************************************/
-
-             pgl.setWrap(PangoWrapMode.WORD_CHAR);
+            pgl.setWrap(PangoWrapMode.WORD_CHAR);
 
             switch (position) {
                 case SETTINGS_QUADRANT_NE_VALUE:
@@ -3588,7 +3568,7 @@ private:
 
             PgCairo.showLayout(cr, pgl);
 
-            cr.resetClip();
+            cr.restore();
         }
         cr.restore();
         return false;
