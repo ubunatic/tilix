@@ -154,8 +154,20 @@
     <value nick='bottom' value = '1'/>
   </enum>
 
+  <!-- Rendering path enum -->
+  <enum id='com.gexperts.Tilix.RenderingPath'>
+    <value nick='legacy' value = '0'/>
+    <value nick='modern' value = '1'/>
+  </enum>
+
   <!-- Global settings -->
   <schema id="com.gexperts.Tilix.Settings" path="/com/gexperts/Tilix/">
+
+    <key name="rendering-path" enum="com.gexperts.Tilix.RenderingPath">
+      <default>'legacy'</default>
+      <summary>Rendering pipeline path</summary>
+      <description>Selects between legacy Cairo software rendering and modern hardware-accelerated rendering path.</description>
+    </key>
 
     <key name="window-state" type="i">
       <default>0</default>
@@ -557,6 +569,11 @@
   <!-- A terminal profile -->
 
   <schema id="com.gexperts.Tilix.Profile">
+    <key name="rendering-path" enum="com.gexperts.Tilix.RenderingPath">
+      <default>'legacy'</default>
+      <summary>Rendering pipeline path</summary>
+      <description>Selects between legacy Cairo software rendering and modern hardware-accelerated rendering path.</description>
+    </key>
     <key name="visible-name" type="s">
       <default l10n="messages" context="visible-name">'Unnamed'</default>
       <summary>Human-readable name of the profile</summary>
