@@ -234,7 +234,9 @@ private:
         nb.setShowTabs(false);
         nb.setShowBorder(false);
         if (useTabs) {
-            nb.getStyleContext().addClass("tilix-background");
+            if (gsSettings.getBoolean(SETTINGS_ENABLE_TRANSPARENCY_KEY)) {
+                nb.getStyleContext().addClass("tilix-background");
+            }
             nb.setScrollable(true);
             nb.setGroupName("tilix");
             nb.addOnCreateWindow(&onCreateWindow);

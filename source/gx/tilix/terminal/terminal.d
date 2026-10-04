@@ -3504,6 +3504,7 @@ private:
 
         // Experimental Cairo path; VTE's terminal content remains Cairo-rendered.
         if (isVTEBackgroundDrawEnabled()) {
+            bool paintBackground = true;
             static if (COMPILE_VTE_BACKGROUND_COLOR) {
                 if (checkVTEVersion(VTE_VERSION_BACKGROUND_GET_COLOR)) {
                     if (drawBG is null) drawBG = new RGBA();
@@ -3511,12 +3512,20 @@ private:
                 } else {
                     drawBG = vteBG;
                 }
-                cr.setSourceRgba(drawBG.red, drawBG.green, drawBG.blue, drawBG.alpha);
+                paintBackground = drawBG.alpha < 1.0;
+                if (paintBackground) {
+                    cr.setSourceRgba(drawBG.red, drawBG.green, drawBG.blue, drawBG.alpha);
+                }
             } else {
-                cr.setSourceRgba(vteBG.red, vteBG.green, vteBG.blue, vteBG.alpha);
+                paintBackground = vteBG.alpha < 1.0;
+                if (paintBackground) {
+                    cr.setSourceRgba(vteBG.red, vteBG.green, vteBG.blue, vteBG.alpha);
+                }
             }
-            cr.setOperator(cairo_operator_t.SOURCE);
-            cr.paint();
+            if (paintBackground) {
+                cr.setOperator(cairo_operator_t.SOURCE);
+                cr.paint();
+            }
         }
 
         // Draw margin line in the experimental path

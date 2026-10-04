@@ -154,10 +154,14 @@ private:
 
     void createBaseUI() {
         stackGroup = new Box(Orientation.VERTICAL, 0);
-        stackGroup.getStyleContext().addClass("tilix-background");
+        if (gsSettings.getBoolean(SETTINGS_ENABLE_TRANSPARENCY_KEY)) {
+            stackGroup.getStyleContext().addClass("tilix-background");
+        }
         addNamed(stackGroup, STACK_GROUP_NAME);
         stackMaximized = new Box(Orientation.VERTICAL, 0);
-        stackMaximized.getStyleContext().addClass("tilix-background");
+        if (gsSettings.getBoolean(SETTINGS_ENABLE_TRANSPARENCY_KEY)) {
+            stackMaximized.getStyleContext().addClass("tilix-background");
+        }
         addNamed(stackMaximized, STACK_MAX_NAME);
         groupChild = new Box(Orientation.VERTICAL, 0);
         stackGroup.add(groupChild);
@@ -997,7 +1001,9 @@ private:
         gsSettings.addOnChanged(delegate(string key, GSettings) {
             applyPreference(key);
         });
-        getStyleContext.addClass("tilix-background");
+        if (gsSettings.getBoolean(SETTINGS_ENABLE_TRANSPARENCY_KEY)) {
+            getStyleContext.addClass("tilix-background");
+        }
 
         addOnDraw(&onDraw);
     }
