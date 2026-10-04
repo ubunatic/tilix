@@ -1,3 +1,7 @@
 ## 2026-05-18 - Cairo Clip Invalidation in GTK Custom Widget Drawing
 **Learning:** In GTK3 Cairo custom drawing callbacks (such as `onVTEDrawBadge` attached to VTE draw signals), calling `cairo_rectangle(0, 0, width, height)`, `cairo_clip()`, or `cairo_reset_clip()` strips GTK's dirty region clipping path. This forces Cairo software rasterization to fill the entire surface (33MB per frame at 4K) on every minor redraw event rather than restricting repaints to the damaged rectangle.
 **Action:** Always rely on GTK's pre-clipped Cairo context for background fills with `cr.paint()`, and isolate custom sub-region clipping (like badge layouts) using `cr.save()` and `cr.restore()` instead of `cr.resetClip()`.
+
+## 2026-05-18 - Avoid GSettings Lookups in GTK Draw Callbacks
+**Learning:** Calling `gsProfile.getString()` or `gsSettings.get*()` inside GTK widget `draw` callbacks (such as `onVTEDrawBadge`) causes GSettings IPC/variant queries and heap string allocations on every single render frame.
+**Action:** Cache settings in private member variables updated during `applyPreference` signal handlers, and read cached values in draw callbacks.

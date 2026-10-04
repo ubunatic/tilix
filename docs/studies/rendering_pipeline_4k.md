@@ -85,13 +85,21 @@ cr.resetClip();
 
 To address the primary CPU rendering bottleneck without changing Tilix's architecture or external dependencies:
 
-### Optimization: Damage-Clip Preservation in `onVTEDrawBadge` (`Terminal.d`)
+### Optimization 1: Damage-Clip Preservation in `onVTEDrawBadge` (`Terminal.d`)
 1. **Eliminated `cr.rectangle(0.0, 0.0, width, height)` & `cr.clip()`:**
    Instead of overriding the clip path with full widget dimensions, `cr.paint()` is called directly on the Cairo context. Cairo automatically restricts the background paint to GTK's invalidated damage region.
 2. **Removed Destructive `cr.resetClip()` Calls:**
    Replaced `cr.resetClip()` with proper Cairo context state scoping (`cr.save()` and `cr.restore()`).
 3. **Impact:**
    During normal user interactions (typing, cursor blinking, single-line terminal output), the drawn surface area drops from **8,294,400 pixels** (full 4K surface) to **~200–5,000 pixels** (dirty region only)—a **>99% reduction in software pixel write volume** per frame update.
+
+### Optimization 2: GSettings Query Caching in `onVTEDrawBadge` (`Terminal.d`)
+1. **Cached `badgePosition` Setting in `Terminal` Member Variable:**
+   Previously, `onVTEDrawBadge` invoked `gsProfile.getString(SETTINGS_PROFILE_BADGE_POSITION_KEY)` on every draw frame. This caused repeated GSettings IPC/variant lookups and heap string allocations during every render pass.
+2. **Updated via Preference Change Signals:**
+   `badgePosition` is initialized during terminal setup and updated only when the preference change signal is triggered (`applyPreference`).
+3. **Impact:**
+   Eliminates per-frame GSettings IPC and heap string allocations in hot drawing paths, reducing GC pressure and draw loop execution overhead.
 
 ---
 
