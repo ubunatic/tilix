@@ -2418,9 +2418,8 @@ private:
             break;
         case SETTINGS_RENDERING_PATH_KEY:
             renderingPath = gsProfile.getString(SETTINGS_PROFILE_RENDERING_PATH_KEY);
-            if (renderingPath.length == 0) {
+            if (renderingPath == SETTINGS_RENDERING_PATH_DEFAULT_VALUE)
                 renderingPath = gsSettings.getString(SETTINGS_RENDERING_PATH_KEY);
-            }
             if (renderingPath.length == 0) {
                 renderingPath = DEFAULT_USE_MODERN_RENDERING_PATH ? SETTINGS_RENDERING_PATH_MODERN_VALUE : SETTINGS_RENDERING_PATH_LEGACY_VALUE;
             }
@@ -3503,8 +3502,7 @@ private:
         double width = to!double(w.getAllocatedWidth());
         double height = to!double(w.getAllocatedHeight());
 
-        // Modern Hardware-Accelerated Rendering Path MVP
-        // Performs direct damage region blitting and hardware-composited background / badge / margin passes
+        // Experimental Cairo path; VTE's terminal content remains Cairo-rendered.
         if (isVTEBackgroundDrawEnabled()) {
             static if (COMPILE_VTE_BACKGROUND_COLOR) {
                 if (checkVTEVersion(VTE_VERSION_BACKGROUND_GET_COLOR)) {
@@ -3521,7 +3519,7 @@ private:
             cr.paint();
         }
 
-        // Draw Margin line in modern path
+        // Draw margin line in the experimental path
         if (margin > 0 && marginEnabled) {
             double r, g, b;
             contrast(0.40, vteFG, r, g, b);
@@ -3532,7 +3530,7 @@ private:
             cr.stroke();
         }
 
-        // Modern path badge rendering with clipped render node scoping
+        // Badge rendering with Cairo clip scoping
         if (_cachedBadge.length > 0 && badgeFont !is null) {
             cr.save();
             cr.setSourceRgba(vteBadge.red, vteBadge.green, vteBadge.blue, 1.0);

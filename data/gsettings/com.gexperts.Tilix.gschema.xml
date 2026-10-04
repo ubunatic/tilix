@@ -156,6 +156,7 @@
 
   <!-- Rendering path enum -->
   <enum id='com.gexperts.Tilix.RenderingPath'>
+    <value nick='default' value = '2'/>
     <value nick='legacy' value = '0'/>
     <value nick='modern' value = '1'/>
   </enum>
@@ -166,7 +167,7 @@
     <key name="rendering-path" enum="com.gexperts.Tilix.RenderingPath">
       <default>'legacy'</default>
       <summary>Rendering pipeline path</summary>
-      <description>Selects between legacy Cairo software rendering and modern hardware-accelerated rendering path.</description>
+      <description>Selects between the established Cairo path and an experimental Cairo overlay path.</description>
     </key>
 
     <key name="window-state" type="i">
@@ -570,9 +571,9 @@
 
   <schema id="com.gexperts.Tilix.Profile">
     <key name="rendering-path" enum="com.gexperts.Tilix.RenderingPath">
-      <default>'legacy'</default>
+      <default>'default'</default>
       <summary>Rendering pipeline path</summary>
-      <description>Selects between legacy Cairo software rendering and modern hardware-accelerated rendering path.</description>
+      <description>Choose a rendering path for this profile, or inherit the global setting.</description>
     </key>
     <key name="visible-name" type="s">
       <default l10n="messages" context="visible-name">'Unnamed'</default>

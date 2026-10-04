@@ -10,6 +10,8 @@ Tilix uses GTK 3 and embeds VTE (`VteTerminal`). GTK 3 drawing uses Cairo; the l
 
 The display compositor may use the GPU to composite application windows. That does not mean VTE's terminal-cell drawing is GPU-rendered.
 
+The rendering-path preference added upstream selects Tilix's legacy or experimental Cairo overlay callback. It does not replace VTE's renderer or enable GSK/OpenGL for terminal cells. The profile setting now inherits the global choice unless explicitly overridden. Neither path has a controlled before/after performance result yet.
+
 ## Reassessment of the damage-clip change
 
 The earlier claim that `cr.rectangle(0, 0, width, height); cr.clip();` makes Cairo paint the full widget was incorrect. Cairo intersects a new clip with the current clip; `cairo_clip()` can only shrink the active region. If GTK has already supplied a damage clip, intersecting it with the full widget rectangle leaves the damage clip in effect. [`cairo_clip()` reference](https://www.cairographics.org/manual/cairo-cairo-t.html).
