@@ -1,0 +1,14 @@
+version: 1
+issues:
+    tracker: none
+    merge_driver: false
+docs:
+    studies: true
+    copies:
+        - bash
+        - make
+rules:
+    quota: true
+make:
+    scaffold: true
+    container_test: false

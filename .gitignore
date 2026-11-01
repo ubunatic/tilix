@@ -52,3 +52,7 @@ po/*.gmo
 po/remove-potcdate.sed
 # Harnez issue tracker lock files
 /issues/*.lock
+
+# harnez issue-index lock files
+/issues/README.md.lock
+/issues/.reserve.lock
